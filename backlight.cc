@@ -12,7 +12,7 @@
 
 using namespace std;
 
-const string version = "1.4.3";
+const string version = "1.4.4";
 
 void assert_writable (const std::string& _filename) noexcept (false) {
     int fd = ::open(_filename.c_str(), O_WRONLY);
@@ -69,9 +69,10 @@ struct config {
         system ((script + "> " TMPFILE).c_str());
         ifstream cfg(TMPFILE);
         cfg >> *this;
-        cerr << "\e[36;1m=== AutoDetected control directory: ===\e[0m\n"
-                "\t«"+ data_path + "».\n"
-                "Fix the file «" + rcfile + "» if it's wrong.\n\n";
+        if (not quiet)
+            cerr << "\e[36;1m=== AutoDetected control directory: ===\e[0m\n"
+                    "\t«"+ data_path + "».\n"
+                    "Fix the file «" + rcfile + "» if it's wrong.\n\n";
         system(("mv -f " TMPFILE " " + rcfile + " 2>/dev/null || rm -f " TMPFILE).c_str());
         #undef TMPFILE
     }
@@ -159,10 +160,14 @@ private:
      *  3. Save the result back to file.
     **/
     int _Modify(std::function<void (int&)>&& _modifier) {
+#if 0
         /// fix samsung brightness, restore it to max.
+        /// my acpi brightness does not work again, this code snippet is useless. drm brightness device works well.
         try {
-            auto max_str = fopen ("/sys/class/backlight/samsung/max_brightness", ios::in);
-            auto str = fopen ("/sys/class/backlight/samsung/brightness", ios::in | ios::out);
+            auto max_str = fopen ("/sys/class/backlight/samsung/max_brightness",
+                                  ios::in);
+            auto str = fopen ("/sys/class/backlight/samsung/brightness",
+                              ios::in | ios::out);
             int m;
             int s;
             *str >> s;
@@ -173,7 +178,7 @@ private:
             }
         } catch (...) {
         }
-
+#endif
         int now = this->now();
         auto str = fopen (config::the().CurrentPath(), ios::out);
         str->exceptions (ios::badbit | ios::failbit);
