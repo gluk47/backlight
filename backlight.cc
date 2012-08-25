@@ -12,7 +12,7 @@
 
 using namespace std;
 
-const string version = "1.4";
+const string version = "1.4.3";
 
 void assert_writable (const std::string& _filename) noexcept (false) {
     int fd = ::open(_filename.c_str(), O_WRONLY);
@@ -52,12 +52,26 @@ struct config {
         static config gifnoc;
         return gifnoc;
     }
-    bool quiet; //< omit user messages, for script invocation
+    bool quiet; ///< omit user messages, for script invocation
     void reconfigure() noexcept (false) {
         #define TMPFILE "/tmp/backlightrc.tmp"
-        system("find /sys/devices/ -name backlight | head -1 > " TMPFILE);
+        // filter = "|grep drm"
+        auto find_cmd = [](const string& filter) {
+            return "path=\"`find /sys/devices/ -name max_brightness"
+                 + filter
+                 + "|head -n1`\"";
+        };
+        string script = "if " + find_cmd ("|grep drm") + "; then :;\n"
+                    + "elif " + find_cmd ("|grep acpi") + "; then :;\n"
+                    + "else " + find_cmd ("") + ";\n"
+                        "fi;\ndirname \"$path\"";
+//         cerr << "script: «" + script + "»\n";
+        system ((script + "> " TMPFILE).c_str());
         ifstream cfg(TMPFILE);
         cfg >> *this;
+        cerr << "\e[36;1m=== AutoDetected control directory: ===\e[0m\n"
+                "\t«"+ data_path + "».\n"
+                "Fix the file «" + rcfile + "» if it's wrong.\n\n";
         system(("mv -f " TMPFILE " " + rcfile + " 2>/dev/null || rm -f " TMPFILE).c_str());
         #undef TMPFILE
     }
@@ -66,9 +80,9 @@ private:
         max_path = data_path + "/max_brightness";
         current_path = data_path + "/brightness";
     }
-    string data_path;
-    string max_path;
-    string current_path;
+    string data_path; ///< path to control files
+    string max_path; ///< control file, containing max value (full path)
+    string current_path; ///< control file, containing actual value (full path)
     config() noexcept (false):
                data_path("/sys/class/backlight/acpi_video0"),
                        rcfile("/etc/backlight"),
