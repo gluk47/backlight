@@ -7,12 +7,13 @@
 #include <string>
 
 #include <cstring>
+#include <assert.h>
 #include <fcntl.h>
 #include <unistd.h>
 
 using namespace std;
 
-const string version = "1.4.5";
+const string version = "1.4.6";
 
 void assert_writable (const std::string& _filename) noexcept (false) {
     int fd = ::open(_filename.c_str(), O_WRONLY);
@@ -84,12 +85,17 @@ struct config {
     class percent_flags {
     public:
         /// The value was supplied by user.
-        inline bool forced () const noexcept { return value & 4; }
-        inline void forced (bool _) noexcept { value = value | 4; }
+        inline bool forced () const noexcept { return value & forced_bitmask ; }
+        inline void forced (bool _) noexcept { toggle_bitmask (_, forced_bitmask); }
         /// Use percent values
-        inline bool percent () const noexcept { return value & 2; }
-        inline void percent (bool _) noexcept { value |= 2; }
+        inline bool percent () const noexcept { return value & percent_bitmask; }
+        inline void percent (bool _) noexcept { toggle_bitmask (_, percent_bitmask); }
     private:
+        // _byte_number : 0-based, 0-th is the lowest (the power of 2 corresponding to the bit).
+        inline void toggle_bitmask (bool _switch_on, uint8_t _mask) noexcept {
+            _switch_on ? value |= _mask : value ^= value & _mask;
+        }
+        const uint8_t percent_bitmask = 2, forced_bitmask = 4;
         uint8_t value = 0; //< auto, absolute
     } measure; ///< use percents for commands ± and = ?
 private:
@@ -123,43 +129,56 @@ private:
     }
 };
 
-ostream& operator<< (ostream&, const config&) {
-}
+// ostream& operator<< (ostream&, const config&) {
+// }
 
 istream& operator>> (istream& _str, config& _cfg) noexcept (false) {
-    char filename[65536];
+    char filename [65536];
     _str.getline(filename, 65536);
     _cfg.DataPath(filename);
 }
 
 struct brightness {
+    /// max as driver's absolute value
+    /// Auto-adjusts config::the().measure.percent()
     int max() noexcept (false) {
         if (not _Max_read)
             _Read_max();
         return _Max;
     }
+    /// absolute value of brightness as reported by driver
     int now() noexcept (false) {
         return _Read(config::the().CurrentPath());
     }
+    /// brightness value for user
     inline int now_percent() throw (exception) {
-        return max()? now() * 100 / max() : now();
+        const auto m = max(); //< also adjusts config::the().measure.percent()
+        return config::the().measure.percent()?
+           (assert (m), now() * 100 / m)
+          : now();
     }
+    /// 1 unit to change brightness
     inline int one_percent() throw (exception) {
-        return max()? max() / 100 : 1;
+        const auto m = max ();
+        return config::the().measure.percent()?
+                static_cast<int> (m / 100) // redundant cast, for readability's sake
+              : 1;
     }
     static brightness& the() { static brightness _; return _; }
     /// set brightness
     void now (int _) {
-        if (max() != 0) {
+        const auto m = max();
+        if (config::the().measure.percent()) {
             if (_ > 100) _ = 100;
             else if (_ < 0) _ = 0;
-            _ = max() * _ / 100 + 1;
+            _ = m * _ / 100;
         } else {
-            if (_ > max()) _ = max();
+            if (_ > m) _ = m;
             else if (_ < 0) _ = 0;
         }
         _Modify ([_](int& _now){_now = _;});
     }
+    // prefix versions only: modify brightness and return new value
     int operator++ () noexcept (false) {
         return now() >= max()? max() : _Modify([this](int& _) {
             _ = max() * (now_percent() + 1) / 100 + 1;
@@ -171,10 +190,12 @@ struct brightness {
         });
     }
 private:
-    brightness() 
-             :  _Max(-1), _Max_read(false) {}
-    int _Max;
-    bool _Max_read;
+    int _Max = -1; ///< Max value as reported by driver (absolute int value, not normalized)
+    bool _Max_read = false; ///< _Max filled. (Lazyness support).
+    /** @brief read an int from the file named @c _
+     * @throw std::exception upon failure
+     * @return the value read
+    **/
     int _Read(const std::string& _) {
         auto str = fopen(_, ios::in);
         str->exceptions(ios::badbit | ios::failbit);
@@ -215,13 +236,19 @@ void display_brightness() {
         cout << brightness::the().now_percent() << "\n";
         return;
     }
-    auto max = []{return brightness::the().max(); };
+    // aliases
+    const auto max = brightness::the().max();
     auto now = []{return brightness::the().now(); };
     auto now_percent = []{return brightness::the().now_percent(); };
-    if (max () == 0) 
-        cout << "Brightness level is " << now() << ", maximum is reported to be 0 (most likely just unknown)\n";
-    else 
-        cout << "Brightness is about " << now_percent() << "%\n";
+    if (config::the().measure.percent()) 
+            cout << "Brightness is about " << now_percent() << "%\n";
+    else {
+        cout << "Brightness level is " << now();
+        if (max > 0)
+            cout << " out of " << max << "\n";
+        else
+            cout << ", maximum is reported to be 0 (most likely just unknown)\n";
+    }
 }
 
 void print_help() {
@@ -268,7 +295,6 @@ void perform_action(int argc, char* argv[]) {
                   config::the().measure.forced (true);
                   break;
         }
-
     if (need_help or not no_action and optind == argc) { print_help(); return; }
     if (no_action) return;
     for (; optind < argc; ++optind) {
@@ -301,4 +327,3 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 }
-
