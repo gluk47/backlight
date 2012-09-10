@@ -12,7 +12,7 @@
 
 using namespace std;
 
-const string version = "1.4.4";
+const string version = "1.4.5";
 
 void assert_writable (const std::string& _filename) noexcept (false) {
     int fd = ::open(_filename.c_str(), O_WRONLY);
@@ -56,16 +56,21 @@ struct config {
     void reconfigure() noexcept (false) {
         #define TMPFILE "/tmp/backlightrc.tmp"
         // filter = "|grep drm"
-        auto find_cmd = [](const string& filter) {
-            return "path=\"`find /sys/devices/ -name max_brightness"
+        auto find_cmd = [](const string& filter, const string& prefix) {
+            return "path=\"`find /sys/devices -name "
+                 + prefix
+                 + "brightness | grep backlight "
                  + filter
-                 + "|head -n1`\"";
+                 + " | head -n1`\"";
         };
-        string script = "if " + find_cmd ("|grep drm") + "; then :;\n"
-                    + "elif " + find_cmd ("|grep acpi") + "; then :;\n"
-                    + "else " + find_cmd ("") + ";\n"
-                        "fi;\ndirname \"$path\"";
-//         cerr << "script: «" + script + "»\n";
+        auto find1 = [&](const string& prefix) {
+        return find_cmd ("| grep drm", prefix) + " || \\\n"
+             + find_cmd ("| grep acpi", prefix) + " || \\\n"
+             + find_cmd ("", prefix);
+        };
+        string script = find1 ("max_") + " || \\\n" + find1 ("")
+                      + "\ndirname \"$path\"";
+        cerr << "script:\n" + script + "\n\n";
         system ((script + "> " TMPFILE).c_str());
         ifstream cfg(TMPFILE);
         cfg >> *this;
@@ -76,6 +81,17 @@ struct config {
         system(("mv -f " TMPFILE " " + rcfile + " 2>/dev/null || rm -f " TMPFILE).c_str());
         #undef TMPFILE
     }
+    class percent_flags {
+    public:
+        /// The value was supplied by user.
+        inline bool forced () const noexcept { return value & 4; }
+        inline void forced (bool _) noexcept { value = value | 4; }
+        /// Use percent values
+        inline bool percent () const noexcept { return value & 2; }
+        inline void percent (bool _) noexcept { value |= 2; }
+    private:
+        uint8_t value = 0; //< auto, absolute
+    } measure; ///< use percents for commands ± and = ?
 private:
     void update_paths() {
         max_path = data_path + "/max_brightness";
@@ -84,27 +100,27 @@ private:
     string data_path; ///< path to control files
     string max_path; ///< control file, containing max value (full path)
     string current_path; ///< control file, containing actual value (full path)
-    config() noexcept (false):
-               data_path("/sys/class/backlight/acpi_video0"),
-                       rcfile("/etc/backlight"),
-               quiet(false) {
-                   update_paths();
-                   auto read_config=[this](){
-                       ifstream rc(rcfile);
-                       rc.exceptions(rc.badbit|rc.failbit);
-                       rc >> *this;
-                   };
-                   try {
-                       read_config();
-                   } catch (exception& x) {
-                       //cout << "Failed reading config file " << rcfile << ".\nTrying to save new config there...\n";
-                       try { reconfigure(); }
-                       catch (exception& x) {
-                         //  cout << "\e[31;1mFailed reading config again.\e[0m Check if you have writing permissions to " << rcfile << ".\n\nConsider using sudo if it's available. You'll need superuser rights anyway in order to write to the control file /sys/<...>/brightness_now.\n";
-                           ;
-                       }
-                   }
-               }
+    config () noexcept (false):
+        data_path("/sys/class/backlight/acpi_video0"),
+        rcfile("/etc/backlight"),
+        quiet(false) {
+        update_paths();
+        auto read_config = [this] {
+            ifstream rc(rcfile);
+            rc.exceptions(rc.badbit|rc.failbit);
+            rc >> *this;
+        };
+        try {
+            read_config();
+        } catch (exception& x) {
+            //cout << "Failed reading config file " << rcfile << ".\nTrying to save new config there...\n";
+            try { reconfigure(); }
+            catch (exception& x) {
+                //  cout << "\e[31;1mFailed reading config again.\e[0m Check if you have writing permissions to " << rcfile << ".\n\nConsider using sudo if it's available. You'll need superuser rights anyway in order to write to the control file /sys/<...>/brightness_now.\n";
+                ;
+            }
+        }
+    }
 };
 
 ostream& operator<< (ostream&, const config&) {
@@ -117,12 +133,23 @@ istream& operator>> (istream& _str, config& _cfg) noexcept (false) {
 }
 
 struct brightness {
-    int max() noexcept (false) { if (not _Max_read) _Read_max(); return _Max;}
-    int now() noexcept (false) { return _Read(config::the().CurrentPath());}
-    inline int now_percent() throw (exception) { return max()? now() * 100 / max() : now(); }
-    inline int one_percent() throw (exception) { return max()? max() / 100 : 1; }
+    int max() noexcept (false) {
+        if (not _Max_read)
+            _Read_max();
+        return _Max;
+    }
+    int now() noexcept (false) {
+        return _Read(config::the().CurrentPath());
+    }
+    inline int now_percent() throw (exception) {
+        return max()? now() * 100 / max() : now();
+    }
+    inline int one_percent() throw (exception) {
+        return max()? max() / 100 : 1;
+    }
     static brightness& the() { static brightness _; return _; }
-    void now(int _) {
+    /// set brightness
+    void now (int _) {
         if (max() != 0) {
             if (_ > 100) _ = 100;
             else if (_ < 0) _ = 0;
@@ -159,26 +186,7 @@ private:
      *  2. Call _modifier with this value passed by reference.
      *  3. Save the result back to file.
     **/
-    int _Modify(std::function<void (int&)>&& _modifier) {
-#if 0
-        /// fix samsung brightness, restore it to max.
-        /// my acpi brightness does not work again, this code snippet is useless. drm brightness device works well.
-        try {
-            auto max_str = fopen ("/sys/class/backlight/samsung/max_brightness",
-                                  ios::in);
-            auto str = fopen ("/sys/class/backlight/samsung/brightness",
-                              ios::in | ios::out);
-            int m;
-            int s;
-            *str >> s;
-            *max_str >> m;
-            if (s != m) {
-                *str << m;
-                return this->now();
-            }
-        } catch (...) {
-        }
-#endif
+    int _Modify (std::function<void (int&)>&& _modifier) {
         int now = this->now();
         auto str = fopen (config::the().CurrentPath(), ios::out);
         str->exceptions (ios::badbit | ios::failbit);
@@ -187,7 +195,19 @@ private:
 
         return now;
     }
-    void _Read_max() noexcept (false) { _Max = _Read(config::the().MaxPath()); _Max_read = true; }
+    void _Read_max() noexcept (false) {
+        _Max = _Read (config::the ().MaxPath ());
+        _Max_read = true;
+        auto& flag = config::the ().measure;
+        if (_Max == 0)
+            flag.percent (true);
+        else if (not flag.forced ()) {
+            if (_Max > 100)
+                flag.percent (true);
+            else
+                flag.percent (false);
+        }
+    }
 };
 
 void display_brightness() {
@@ -198,7 +218,7 @@ void display_brightness() {
     auto max = []{return brightness::the().max(); };
     auto now = []{return brightness::the().now(); };
     auto now_percent = []{return brightness::the().now_percent(); };
-    if (max() == 0) 
+    if (max () == 0) 
         cout << "Brightness level is " << now() << ", maximum is reported to be 0 (most likely just unknown)\n";
     else 
         cout << "Brightness is about " << now_percent() << "%\n";
@@ -211,13 +231,16 @@ void print_help() {
             "\tan arg may be separated from an action by space.\n\n"
             "\e[4mParameters:\e[0m\n"
             "\e[1m-q\e[0m\tquiet mode, without messages for user, but with error reports to stderr.\n"
+            "\e[1m-p\e[0m\tuse percents, if possible.\n"
+            "\e[1m-a\e[0m\tuse absolute values of brightness.\n"
             "\e[1m-h\e[0m\tthis help.\n"
             "\e[1m-v\e[0m\tversion (this is v" << version << ").\n"
             "\n\e[4mActions:\e[0m\n"
             "\e[1m=, d, display\e[0m\tdisplay current brightness rate. This value can be used later as an argument to the '=' action.\n"
             "\e[1m+\e[0m\t\tincrease brightness.\n"
             "\e[1m-\e[0m\t\tdecrease brightness.\n"
-            "\e[1m=<value>\e[0m\tset brightness. You can get a correct value from a previous call with the action 'display'. Depending on the system this value is either an absolute number (machine-dependent) or a percent value. If the system does report max possible value, this parameter must be specified as a percernt value, otherwise you'll see the warning from the action 'display', and this parameter must be specified as an absolute value.\n"
+            "\e[1m=<value>\e[0m\tset brightness. You can get a correct value from a previous call with the action 'display'. Depending on the system this value is either an absolute number (machine-dependent) or a percent value. If the system does report max possible value more than 100, this parameter must be specified as a percent value, otherwise you'll see the warning from the action 'display', and this parameter must be specified as an absolute value. If the system reports max. value, you can force using percent or absolute value using -a or -p (see above).\n"
+            "\e[1mr, reconfigure\e[0m\t\trecreate configuration file. This file is created automatically if absent.\n"
             "\n\e[4mExamples:\e[0m\n"
             "backlight -\n"
             "backlight +\n"
@@ -233,18 +256,24 @@ void perform_action(int argc, char* argv[]) {
     int c;
     bool no_action = false,
          need_help = false;
-    while((c = getopt(argc, argv, "hvq")) != -1) 
-        switch(c){
+    while((c = getopt(argc, argv, "hvqap")) != -1) 
+        switch (c) {
         case 'h': need_help = no_action = true; break;
         case 'v': print_version(); no_action = true; break;
         case 'q': config::the().quiet = true; break;
+        case 'a': config::the().measure.percent (false);
+                  config::the().measure.forced (true);
+                  break;
+        case 'p': config::the().measure.percent (true);
+                  config::the().measure.forced (true);
+                  break;
         }
 
     if (need_help or not no_action and optind == argc) { print_help(); return; }
     if (no_action) return;
     for (; optind < argc; ++optind) {
         const string action = argv[optind];
-        if (action == "display" or action == "d") 
+        if (action == "display" or action == "d")
             display_brightness();
         else if (action[0] == '+')
             ++brightness::the();
@@ -257,6 +286,8 @@ void perform_action(int argc, char* argv[]) {
             ss >> request;
             brightness::the().now(request);
         }
+        else if (action == "reconfigure" or action == "r")
+            config::the().reconfigure();
         else cerr << "Action " << action << " is not defined\n";
     }
 }
