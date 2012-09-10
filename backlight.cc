@@ -13,7 +13,7 @@
 
 using namespace std;
 
-const string version = "1.4.6";
+const string version = "1.4.7";
 
 void assert_writable (const std::string& _filename) noexcept (false) {
     int fd = ::open(_filename.c_str(), O_WRONLY);
@@ -165,30 +165,40 @@ struct brightness {
               : 1;
     }
     static brightness& the() { static brightness _; return _; }
-    /// set brightness
+    /// set brightness.
+    /// arg is either per cent value, or absolute, depending on config.
     void now (int _) {
         const auto m = max();
         if (config::the().measure.percent()) {
             if (_ > 100) _ = 100;
             else if (_ < 0) _ = 0;
-            _ = m * _ / 100;
+            const auto fullarg = m * _;
+            _ = fullarg / 100 + static_cast<bool> (fullarg % 100);
         } else {
             if (_ > m) _ = m;
             else if (_ < 0) _ = 0;
         }
         _Modify ([_](int& _now){_now = _;});
     }
-    // prefix versions only: modify brightness and return new value
+    // prefix versions only: modify brightness and return new value (in user scale  )
     int operator++ () noexcept (false) {
-        return now() >= max()? max() : _Modify([this](int& _) {
-            _ = max() * (now_percent() + 1) / 100 + 1;
-        });
+        now (now_percent () + 1);
+        return now_percent ();
     }
     int operator-- () noexcept (false) {
-        return now() <= 0? 0 : _Modify([this](int& _){
-            _ = max() * (now_percent() - 1) / 100 + 1;
-        });
+        now (now_percent () - 1);
+        return now_percent ();
     }
+#if 0
+    void dump_stats () {
+        cerr << "brightness object @" << std::hex << this << ":\n" << std::dec
+             << "now: " << now () << "\n"
+                "now_percent: " << now_percent () << "\n"
+                "max: " << max () << "\n"
+                "one_percent: " << one_percent () << "\n"
+                "measure: " << (config::the().measure.percent() ? "per cent" : "absolute") << "\n\n";
+    }
+#endif
 private:
     int _Max = -1; ///< Max value as reported by driver (absolute int value, not normalized)
     bool _Max_read = false; ///< _Max filled. (Lazyness support).
