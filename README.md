@@ -22,10 +22,19 @@ To get manual of usage, type backlight -h:
     -v      version (this is v1.4.8).
 
     Actions:
-    =, d, display   display current brightness rate. This value can be used later as an argument to the '=' action.
+    =, d, display   display current brightness rate.
+                    This value can be used later as an argument to the '=' action.
     +               increase brightness.
     -               decrease brightness.
-    =<value>        set brightness. You can get a correct value from a previous call with the action 'display'. Depending on the system this value is either an absolute number (machine-dependent) or a percent value. If the system does report max possible value more than 100, this parameter must be specified as a percent value, otherwise you'll see the warning from the action 'display', and this parameter must be specified as an absolute value. If the system reports max. value, you can force using percent or absolute value using -a or -p (see above).
+    =<value>        set brightness. You can get a correct value from a previous call
+                    with the action 'display'. Depending on the system this value is
+                    either an absolute number (machine-dependent) or a percent value.
+                    If the system does report max possible value more than 100, this
+                    parameter must be specified as a percent value, otherwise you'll
+                    see the warning from the action 'display', and this parameter
+                    must be specified as an absolute value. If the system reports
+                    max. value, you can force using percent or absolute value
+                    using -a or -p (see above).
     r, reconfigure          recreate configuration file. This file is created automatically if absent.
 
     Examples:
@@ -35,6 +44,9 @@ To get manual of usage, type backlight -h:
     backlight =50
     B="$(backlight -q =)"; sudo pm-suspend; backlight =$B
 
-    Config file is /etc/backlight, which contains a single line, which is the path to the folder with control files such as «brightness». It is updated automatically if the program is unable to open a necessary file. This program may fail to autodetect a directory. In this case feel free to fix the config file manually.
+    Config file is /etc/backlight, which contains a single line, which is the path to the folder
+    with control files such as «brightness». It is updated automatically if the program is unable
+    to open a necessary file. This program may fail to autodetect a directory.
+    In this case feel free to fix the config file manually.
 
-Bitcoin address for donations: 17uBDmcXgjxzYm9crf4vVr2DGAazNR7Xae. Thank you ^_^ 
+Bitcoin address for donations: 17uBDmcXgjxzYm9crf4vVr2DGAazNR7Xae. Thank you ^_^
