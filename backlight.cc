@@ -1,7 +1,7 @@
 /**
  * Backlight Linux controller.
  * Author: Egor Kochetov <gluk47@gmail.com>
- * 
+ *
  * Source license: GNU GPL v3.
  */
 
@@ -87,10 +87,11 @@ private:
     string data_path; ///< path to control files
     string max_path; ///< control file, containing max value (full path)
     string current_path; ///< control file, containing actual value (full path)
-    config () noexcept (false) :
-        data_path ("/sys/class/backlight/acpi_video0"),
-        rcfile ("/etc/backlight"),
-        quiet (false) {
+    config () noexcept (false)
+    : rcfile ("/etc/backlight")
+    , quiet (false)
+    , data_path ("/sys/class/backlight/acpi_video0")
+    {
         update_paths();
         auto read_config = [this] {
             ifstream rc (rcfile);
@@ -113,7 +114,8 @@ private:
 
 void config::reconfigure() {
     char fname [] = "/tmp/backlightrc.XXXXXX";
-    if (mktemp(fname) == "") {
+    int file = mkstemp(fname);
+    if (file == -1) {
         perror ("Failed to created temporary file");
         return;
     }
@@ -134,14 +136,18 @@ void config::reconfigure() {
     string script = find1 ("max_") + " || \\\n" + find1 ("")
                     + "\ndirname \"$path\"";
 //     cerr << "script:\n" + script + "\n\n";
-    system ( (script + "> " + fname).c_str());
+    system ((script + "> " + fname).c_str());
+    ::close(file);
     ifstream cfg (fname);
     cfg >> *this;
     if (not quiet)
         cerr << "\e[36;1m=== AutoDetected control directory: ===\e[0m\n"
              "«" + data_path + "».\n"
              "Fix the file «" + rcfile + "» if it's wrong.\n\n";
-    system ( (string ("mv -f ") + fname + " " + rcfile + " 2>/dev/null || { rm -f " + fname + "; echo \"Failed to write to «" + rcfile + "», use sudo if possible.\" ; }").c_str());
+    system ((string ("mv -f ") + fname + " " + rcfile + " 2>/dev/null || { "
+                "rm -f " + fname + "; "
+                "echo \"Failed to write to «" + rcfile + "», use sudo if possible.\" ; "
+            "}").c_str());
 }
 
 // ostream& operator<< (ostream&, const config&) {
@@ -151,6 +157,7 @@ istream& operator>> (istream& _str, config& _cfg) noexcept (false) {
     char filename [65536];
     _str.getline (filename, 65536);
     _cfg.DataPath (filename);
+    return _str;
 }
 
 struct brightness {
@@ -350,7 +357,7 @@ void perform_action (int argc, char* argv[]) {
             config::the().DataPath (optarg);
             break;
         }
-    if (need_help or not no_action and optind == argc) {
+    if (need_help or (not no_action and optind == argc)) {
         print_help();
         return;
     }
