@@ -27,7 +27,7 @@ const string version = "1.4.8";
  * @brief Check that the file is writable. Throw runtime_error if not
  * @throws std::runtime_error if failed to open @c _filename for writing
  */
-void assert_writable (const std::string& _filename) noexcept (false) {
+void assert_writable (const std::string& _filename) noexcept(false) {
     int fd = ::open (_filename.c_str(), O_WRONLY);
     if (fd == -1)
         throw runtime_error ("Unable to write to the file «"
@@ -41,7 +41,7 @@ void assert_writable (const std::string& _filename) noexcept (false) {
  * @brief Open the file or throw a descriptive message.
  * @throws std::runtime_error upon error
  */
-unique_ptr<fstream> fopen (const string& _, decltype (ios::in | ios::out) _mode) noexcept (false) {
+unique_ptr<fstream> fopen (const string& _, decltype (ios::in | ios::out) _mode) noexcept(false) {
     if (::access (_.c_str(), F_OK))
         throw runtime_error ("The file «" + _ + "» does not exist");
     if (_mode & ios::out)
@@ -58,7 +58,7 @@ unique_ptr<fstream> fopen (const string& _, decltype (ios::in | ios::out) _mode)
 
 struct config;
 ostream& operator<< (ostream&, const config&);
-istream& operator>> (istream&, config&) noexcept (false);
+istream& operator>> (istream&, config&) noexcept(false);
 
 struct config {
     string rcfile = "/etc/backlight";
@@ -77,7 +77,7 @@ struct config {
     }
     bool quiet = false; ///< omit user messages, for script invocation
     /// Autodetect control directory and overwrite existing config file
-    void reconfigure() noexcept (false);
+    void reconfigure() noexcept(false);
     bool UsePercents;
     bool ForcedUnits = false; ///< user forced percents or absolute values
 private:
@@ -88,7 +88,7 @@ private:
     string data_path; ///< path to control files
     string max_path; ///< control file, containing max value (full path)
     string current_path; ///< control file, containing actual value (full path)
-    config () noexcept (false)
+    config () noexcept(false)
     : rcfile ("/etc/backlight")
     , quiet (false)
     , data_path ("/sys/class/backlight/acpi_video0")
@@ -154,7 +154,7 @@ void config::reconfigure() {
 // ostream& operator<< (ostream&, const config&) {
 // }
 
-istream& operator>> (istream& _str, config& _cfg) noexcept (false) {
+istream& operator>> (istream& _str, config& _cfg) noexcept(false) {
     char filename [65536];
     _str.getline (filename, 65536);
     _cfg.DataPath (filename);
@@ -164,24 +164,24 @@ istream& operator>> (istream& _str, config& _cfg) noexcept (false) {
 struct brightness {
     /// max as driver's absolute value
     /// Auto-adjusts config::the().UsePercents
-    int max() noexcept (false) {
+    int max() noexcept(false) {
         if (not _Max_read)
             _Read_max();
         return _Max;
     }
     /// absolute value of brightness as reported by driver
-    int now() noexcept (false) {
+    int now() noexcept(false) {
         return _Read (config::the().CurrentPath());
     }
     /// brightness value for user
-    inline int now_percent() throw (exception) {
+    inline int now_percent() noexcept(false) {
         const auto m = max(); //< also adjusts config::the().UsePercents
         return config::the().UsePercents ?
                (assert (m), now() * 100 / m)
                : now();
     }
     /// 1 unit to change brightness
-    inline int one_percent() throw (exception) {
+    inline int one_percent() noexcept(false) {
         const auto m = max ();
         return config::the().UsePercents ?
                static_cast<int> (m / 100) // redundant cast, for readability's sake
@@ -212,14 +212,14 @@ struct brightness {
             _now = _;
         });
     }
-    inline void inc (unsigned shift) noexcept (false) { now (now_percent() + shift); }
-    inline void dec (unsigned shift) noexcept (false) { now (now_percent() - shift); }
+    inline void inc (unsigned shift) noexcept(false) { now (now_percent() + shift); }
+    inline void dec (unsigned shift) noexcept(false) { now (now_percent() - shift); }
     // prefix versions only: modify brightness and return new value (in user scale)
-    int operator++ () noexcept (false) {
+    int operator++ () noexcept(false) {
         inc (1);
         return now_percent ();
     }
-    int operator-- () noexcept (false) {
+    int operator-- () noexcept(false) {
         dec (1);
         return now_percent ();
     }
@@ -260,7 +260,7 @@ private:
 
         return now;
     }
-    void _Read_max() noexcept (false) {
+    void _Read_max() noexcept(false) {
         _Max = _Read (config::the ().MaxPath ());
         _Max_read = true;
         if (_Max == 0)
